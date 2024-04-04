@@ -60,12 +60,14 @@ void trocaComPrimeiro(std::vector<std::string>& vetor, int producer_id) {
 }
 
 void* producer(void* args) {
+    // Inicializa o gerador de números aleatórios
+    srand(static_cast<unsigned int>(time(0) + *((int*)args))); // Adiciona o ID do produtor para diversificar a semente
+
 
     // Adiciona ao buffer
     sem_wait(&semEmpty);
 
     int producer_id = *((int*)args); // Extrai o ID do produtor
-    std::string message = "";
     pthread_mutex_lock(&mutexBuffer);
     index_producs[producer_id] = in;
     in++; // Avança para o próximo local no buffer, considerando o tamanho do buffer
@@ -73,14 +75,22 @@ void* producer(void* args) {
 
     for (int i = 0; i < WORDS_PRODUCER; i++) {
         // Produz
-        int x = rand() % 100;
-        std::string xComoString = std::to_string(x) + " ";
 
-        message.append(xComoString);
+        // Determina um tamanho aleatório para a string entre 3 e 7
+        int tamanhoString = rand() % 5 + 3; // rand() % 5 gera um valor de 0 a 4, adicionando 3 resulta em um valor de 3 a 7
+
+        std::string resultado;
+
+        for (int i = 0; i < tamanhoString; ++i) {
+            // Gera um número aleatório entre 0 e 25
+            char letra = 'a' + (rand() % 26);
+            // Adiciona a letra à string
+            resultado += letra;
+        }
         
         sleep(2);
         pthread_mutex_lock(&mutexBuffer);
-        buffer[index_producs[producer_id]].append(xComoString);
+        buffer[index_producs[producer_id]].append(resultado + " ");
         // for (std::size_t i = 0; i < buffer.size(); ++i) {
         //     if (!buffer[i].empty()) {
         //         std::cout << "Índice " << i << ": " << buffer[i] << std::endl;
@@ -91,7 +101,7 @@ void* producer(void* args) {
     }
 
     pthread_mutex_lock(&mutexBuffer);
-    std::cout << "Producer "<< producer_id << " produced: " << message << " -----\n"; // Imprime o ID do produtor e o valor produzido 
+    std::cout << "Producer "<< producer_id << " produced: " << buffer[index_producs[producer_id]] << " -----\n"; // Imprime o ID do produtor e o valor produzido 
     pthread_mutex_unlock(&mutexBuffer);
 
     sem_wait(&controlar_produc);
