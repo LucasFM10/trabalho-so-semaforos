@@ -17,20 +17,23 @@
 sem_t semEmpty; // semáforo para impedir que os produtores tentem popular um buffer cheio
 sem_t semFull; // semáforo para impedir que os consumidores tentem consumir o buffer quando ele estiver vazio
 
-// semáforo para garantir que todos os consumidores leiam uma mensagem por vez.
-// o último consumidor libera os outros dando post em semTodosConsumidoresLeram,
+// Estes semáforos garantem que todos os consumidores leiam uma mensagem por vez.
+// O último consumidor libera os outros dando post em semTodosConsumidoresLeram,
 // indicando que todos os consumidores já consumiram a mensagem.
-// após isso, o útlimo consumidor dá 3 waits em semUltimoConsumidorEsperando,
-// que será liberado pelos outros consumidores após terem esperando todos
-// serem lidos. isso garante que, quando o último consumidor liberar 3 vezes
-// semEsperandoUltimoConsumidor e todos os outros consumidores serem liberados, isso garante
-// todos os consumidores irão consumir 1 vez aquela mensagem. tentei fazer sem essa lógica a princípio,
-// mas sem esses bloqueios poderia acontecer de um consumidor ler a mensagem 3 vezes e 2 consumidores não lerem, por exemplo
+// Após isso, o útlimo consumidor dá um número waits equivalente ao número de consumidores
+// em semUltimoConsumidorEsperando.
+// Então, os outros consumidores liberarão o último consumidor dando post em semUltimoConsumidorEsperando.
+// Isso garante que cada consumidor irá consumir cada mensagem apenas uma vez, e
+// que todos os consumidores irão consumir a mensagem.
 sem_t semTodosConsumidoresLeram;
 sem_t semUltimoConsumidorEsperando;
 sem_t semEsperandoUltimoConsumidor;
 
-sem_t controlar_produc;
+// Semáforo para garantir que sempre que um produtor terminar de
+// enviar a sua mensagem ela seja consumida e nenhum outro produtor ocupe sua vez.
+// Além disso, também permite, em conjunto com os mutexes, que a produção
+// possa se dar simultaneamente ao consumo.
+sem_t semControlaProduc;
 
 pthread_mutex_t mutexBuffer;
 
@@ -42,7 +45,7 @@ int consumedCount = 0; // Contador de quantos consumidores já consumiram uma me
 
 
 // Função que coloca o produtor que terminou de enviar a mensagem na vez de ser consumido.
-void trocaComPrimeiro(std::vector<std::string>& vetor, int producer_id) {
+void moveParaPrimeiraPosicao(std::vector<std::string>& vetor, int producer_id) {
     
     int index = index_producs[producer_id];
     for (std::size_t i = 0; i < index_producs.size(); ++i) {
@@ -73,8 +76,10 @@ void* producer(void* args) {
     in++; // Avança para o próximo local no buffer, considerando o tamanho do buffer
     pthread_mutex_unlock(&mutexBuffer);
 
+    // Número de palavras para a mensagem (caso queira que seja aleatório)
+    int nPalavras = rand() % 4 + 4;
+
     for (int i = 0; i < WORDS_PRODUCER; i++) {
-        // Produz
 
         // Determina um tamanho aleatório para a string entre 3 e 7
         int tamanhoString = rand() % 5 + 3; // rand() % 5 gera um valor de 0 a 4, adicionando 3 resulta em um valor de 3 a 7
@@ -91,22 +96,23 @@ void* producer(void* args) {
         sleep(2);
         pthread_mutex_lock(&mutexBuffer);
         buffer[index_producs[producer_id]].append(resultado + " ");
-        // for (std::size_t i = 0; i < buffer.size(); ++i) {
-        //     if (!buffer[i].empty()) {
-        //         std::cout << "Índice " << i << ": " << buffer[i] << std::endl;
-        //     }
-        // }
-        // std::cout << std::endl;
+        std::cout << "Producer " << producer_id << " produziu a palavra " << resultado << " e agora o buffer está assim:\n";
+        for (std::size_t i = 0; i < buffer.size(); ++i) {
+            if (!buffer[i].empty()) {
+                std::cout << "Índice " << i << ": " << buffer[i] << std::endl;
+            }
+        }
+        std::cout << std::endl;
         pthread_mutex_unlock(&mutexBuffer);
     }
 
     pthread_mutex_lock(&mutexBuffer);
-    std::cout << "Producer "<< producer_id << " produced: " << buffer[index_producs[producer_id]] << " -----\n"; // Imprime o ID do produtor e o valor produzido 
+    std::cout << "Producer "<< producer_id << " produced: " << buffer[index_producs[producer_id]] << " -----\n\n"; // Imprime o ID do produtor e o valor produzido 
     pthread_mutex_unlock(&mutexBuffer);
 
-    sem_wait(&controlar_produc);
+    sem_wait(&semControlaProduc);
     pthread_mutex_lock(&mutexBuffer);
-    trocaComPrimeiro(buffer, producer_id);
+    moveParaPrimeiraPosicao(buffer, producer_id);
     pthread_mutex_unlock(&mutexBuffer);
 
     for (int i = 0; i < THREAD_NUM / 2; i++)
@@ -154,7 +160,7 @@ void* consumer(void* args) {
                 sem_post(&semEsperandoUltimoConsumidor);
             }
     
-            sem_post(&controlar_produc);
+            sem_post(&semControlaProduc);
         } else {
             pthread_mutex_unlock(&mutexBuffer);
             sem_wait(&semTodosConsumidoresLeram);
@@ -180,7 +186,7 @@ int main(int argc, char* argv[]) {
     sem_init(&semTodosConsumidoresLeram, 0, 0);
     sem_init(&semEsperandoUltimoConsumidor, 0, 0);
     sem_init(&semUltimoConsumidorEsperando, 0, 0);
-    sem_init(&controlar_produc, 0, 1);
+    sem_init(&semControlaProduc, 0, 1);
     int i;
     int ids[THREAD_NUM]; // Array para armazenar IDs das threads
     for (i = 0; i < THREAD_NUM; i++) {
@@ -205,7 +211,7 @@ int main(int argc, char* argv[]) {
     sem_destroy(&semTodosConsumidoresLeram);
     sem_destroy(&semEsperandoUltimoConsumidor);
     sem_destroy(&semUltimoConsumidorEsperando);
-    sem_destroy(&controlar_produc);
+    sem_destroy(&semControlaProduc);
     pthread_mutex_destroy(&mutexBuffer);
     return 0;
 }
